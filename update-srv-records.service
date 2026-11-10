@@ -1,0 +1,50 @@
+# update-srv-records.service - keep WireGuard peer endpoints published in DNS
+#
+# Runs update-srv-records.sh, which loops forever: every cycle it compares
+# the active WireGuard peers with the records in the DNS zone and sends a
+# dynamic update for any difference. See README.md for details.
+#
+# Install:
+#     cp update-srv-records.service /etc/systemd/system/
+#     systemctl daemon-reload
+#     systemctl enable --now update-srv-records.service
+#
+# Logs:
+#     journalctl -u update-srv-records.service
+
+[Unit]
+Description=Publish active WireGuard peer endpoints in DNS
+
+# Start once the network is up. Wants= is what actually pulls
+# network-online.target into the boot; After= alone only orders against it.
+Wants=network-online.target
+After=network-online.target
+
+# Start after the local name server, which receives the updates. The unit is
+# called named.service on current Debian/Ubuntu and RHEL, bind9.service on
+# older Debian/Ubuntu. Ordering against a unit that does not exist is ignored.
+After=named.service bind9.service
+
+[Service]
+Type=simple
+ExecStart=/root/update-srv-records.sh
+
+# Optional settings overrides (WG_DNS_DOMAIN, WG_DNS_INTERVAL, ...), one
+# VAR=value per line. The leading "-" means the file may be absent.
+EnvironmentFile=-/etc/default/update-srv-records
+
+# The script is expected to run forever, so restart it if it ever exits.
+# Exit status 2 means a usage error or a missing command (wg, dig, nsupdate,
+# base64, base32); restarting cannot fix that, so the unit is left failed.
+Restart=always
+RestartSec=10
+RestartPreventExitStatus=2
+
+# The script must run as root to read WireGuard state and the TSIG key, but
+# it only reads files and talks to the local name server.
+NoNewPrivileges=yes
+ProtectSystem=full
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
